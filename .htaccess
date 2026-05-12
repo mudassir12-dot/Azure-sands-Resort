@@ -1,0 +1,33 @@
+Options -Indexes
+ServerSignature Off
+
+# ── Security headers ─────────────────────────────────────────
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set X-XSS-Protection "1; mode=block"
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+# ── Deny access to sensitive files ───────────────────────────
+<FilesMatch "\.(sql|log|ini|env|sh|bat)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# ── PHP errors off in production (turn on for dev) ───────────
+<IfModule mod_php.c>
+    php_flag display_errors Off
+    php_flag log_errors On
+</IfModule>
+
+# ── Enable rewrite ───────────────────────────────────────────
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /azure-sands-resort/
+
+    # Block bad bots
+    RewriteCond %{HTTP_USER_AGENT} (libwww-perl|wget|python|nikto|curl|scan|java|winhttp|clsid|loader) [NC,OR]
+    RewriteCond %{HTTP_USER_AGENT} (<|>|'|%0A|%0D|%27|%3C|%3E|%00) [NC]
+    RewriteRule .* - [F,L]
+</IfModule>
