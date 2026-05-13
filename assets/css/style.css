@@ -990,6 +990,14 @@ ul { list-style:none; }
     .nav-link  { color:var(--dark); font-size:17px; }
     .nav-actions { flex-direction:column; width:100%; gap:12px; }
     .btn-secondary { color:var(--primary); border-color:var(--primary); }
+    .user-toggle {
+        color: var(--primary);
+        background: rgba(10, 36, 99, 0.08);
+        border-color: rgba(10, 36, 99, 0.3);
+    }
+    .user-toggle:hover {
+        background: rgba(10, 36, 99, 0.15);
+    }
     .hero-buttons  { flex-direction:column; align-items:flex-start; }
     .modal-content { padding:36px 20px 28px; }
     .form-grid,.form-row { grid-template-columns:1fr; }
