@@ -140,7 +140,19 @@ ul { list-style:none; }
     background:#fff;
     color:var(--primary);
 }
-
+#exfood {
+    display:inline-flex; align-items:center; justify-content:center; gap:8px;
+    padding:12px 28px;
+    background:transparent;
+    color:#fff;
+    border:2px solid #fff;
+    border-radius:var(--radius-full);
+    font-weight:600; font-size:15px;
+    cursor:pointer;
+    transition:all var(--transition-normal);
+    text-decoration:none;
+}
+#exfood:hover { background:#fff; color:var(--primary); }
 #exroom {
     display:inline-flex; align-items:center; justify-content:center; gap:8px;
     padding:12px 28px;
@@ -967,6 +979,12 @@ ul { list-style:none; }
     cursor:pointer; margin-left:auto;
 }
 
+/* ── Mobile-only user button (outside nav-menu, always in header) ── */
+/* Hidden on desktop. Shown only on mobile via media query below.     */
+.mobile-user-wrap {
+    display: none;
+}
+
 /* ── Responsive ─────────────────────────────────────────────── */
 @media (max-width:1024px) {
     .footer-content { grid-template-columns:repeat(2,1fr); gap:40px 30px; }
@@ -976,6 +994,7 @@ ul { list-style:none; }
 
 @media (max-width:768px) {
     .hamburger { display:flex; }
+
     .nav-menu {
         position:fixed; top:78px; left:0; width:100%;
         background:#fff;
@@ -988,24 +1007,46 @@ ul { list-style:none; }
     .nav-menu.active { transform:translateY(0); opacity:1; visibility:visible; }
     .nav-list  { flex-direction:column; width:100%; text-align:center; gap:18px; }
     .nav-link  { color:var(--dark); font-size:17px; }
+
+    /* Hide the desktop user icon (it's inside the white nav-menu panel) */
+    .nav-actions .user-dropdown { display:none; }
+
+    /* Show the always-visible mobile header user button */
+    .mobile-user-wrap { display:block; }
+
+    /* Mobile user button style — white on dark header */
+    .user-toggle-mobile {
+        background: rgba(255,255,255,.15);
+        border: 2px solid rgba(255,255,255,.3);
+        color: #fff;
+        width: 42px; height: 42px;
+        border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        cursor: pointer; font-size: 22px;
+        transition: all var(--transition-fast);
+    }
+    .user-toggle-mobile:hover { background:rgba(255,255,255,.25); }
+
     .nav-actions { flex-direction:column; width:100%; gap:12px; }
     .btn-secondary { color:var(--primary); border-color:var(--primary); }
-    .user-toggle {
-        color: var(--primary);
-        background: rgba(10, 36, 99, 0.08);
-        border-color: rgba(10, 36, 99, 0.3);
-    }
-    .user-toggle:hover {
-        background: rgba(10, 36, 99, 0.15);
-    }
     .hero-buttons  { flex-direction:column; align-items:flex-start; }
     .modal-content { padding:36px 20px 28px; }
     .form-grid,.form-row { grid-template-columns:1fr; }
     .item-row { grid-template-columns:1fr; }
-    .rooms-grid,.all-rooms-grid,.food-grid,.all-food-grid { grid-template-columns:1fr; }
+
+    /* Keep 2 columns on tablet — only go 1 col on phones (≤480px below) */
+    .food-grid,  .all-food-grid  { grid-template-columns:repeat(2,1fr); }
+    .rooms-grid, .all-rooms-grid { grid-template-columns:repeat(2,1fr); }
+
     .about-features { grid-template-columns:1fr; }
     .footer-content { grid-template-columns:1fr; gap:32px; }
 }
+
+/* Guarantee mobile-user-wrap never shows on desktop */
+@media (min-width:769px) {
+    .mobile-user-wrap { display:none !important; }
+}
+
 
 @media (max-width:480px) {
     .hero-title  { font-size:1.8rem; }
@@ -1014,6 +1055,9 @@ ul { list-style:none; }
     .modal-container { max-height:95vh; }
     .radio-group { flex-direction:column; gap:10px; }
     .auth-tabs { gap:0; }
+    /* Collapse grids to single column only on phones ≤480px */
+    .food-grid,.all-food-grid { grid-template-columns:1fr; }
+    .rooms-grid,.all-rooms-grid { grid-template-columns:1fr; }
 }
 
 /* ── Contact Section ─────────────────────────────────────────── */

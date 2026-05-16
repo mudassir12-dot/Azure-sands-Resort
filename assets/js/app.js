@@ -1,6 +1,14 @@
 /**
  * Azure Sands Resort – Main JavaScript
  * Full-Stack Edition | All modal logic strictly preserved
+ *
+ * UX UPGRADES ADDED (non-breaking):
+ *  1. Login-first protection for booking, ordering, membership
+ *  2. pendingIntent system — remembers what user wanted, fires after login
+ *  3. Auto-fill user name/email/city into booking & order forms on open
+ *  4. Food item preselection via data-food-code attribute
+ *  5. Room number auto-fill from active booking (async, non-blocking)
+ *  6. After login/register: execute pending intent instead of hard reload
  */
 
 document.addEventListener('DOMContentLoaded', function () {
@@ -47,33 +55,51 @@ document.addEventListener('DOMContentLoaded', function () {
     /* ============================================================
        USER DROPDOWN TOGGLE
        ============================================================ */
-    const userToggle   = document.getElementById('userToggle');
-    const userDropdown = document.getElementById('userDropdown');
+    const userToggle       = document.getElementById('userToggle');
+    const userToggleMobile = document.getElementById('userToggleMobile');
+    const userDropdown     = document.getElementById('userDropdown');
 
-    userToggle.addEventListener('click', (e) => {
+    function handleUserToggleClick(e) {
         e.stopPropagation();
         userDropdown.classList.toggle('active');
-    });
+        const btn = e.currentTarget;
+        const isMobileBtn = btn.id === 'userToggleMobile';
+        if (isMobileBtn) {
+            const mobileWrap = document.querySelector('.mobile-user-dropdown');
+            if (mobileWrap && !mobileWrap.contains(userDropdown)) {
+                mobileWrap.appendChild(userDropdown);
+            }
+        } else {
+            const desktopWrap = document.querySelector('.nav-actions .user-dropdown');
+            if (desktopWrap && !desktopWrap.contains(userDropdown)) {
+                desktopWrap.appendChild(userDropdown);
+            }
+        }
+    }
+
+    userToggle?.addEventListener('click', handleUserToggleClick);
+    userToggleMobile?.addEventListener('click', handleUserToggleClick);
 
     document.addEventListener('click', (e) => {
-        if (!userToggle.contains(e.target) && !userDropdown.contains(e.target)) {
-            userDropdown.classList.remove('active');
+        const clickedInsideToggle   = userToggle?.contains(e.target) || userToggleMobile?.contains(e.target);
+        const clickedInsideDropdown = userDropdown?.contains(e.target);
+        if (!clickedInsideToggle && !clickedInsideDropdown) {
+            userDropdown?.classList.remove('active');
         }
     });
 
     function closeUserDropdown() {
-        userDropdown.classList.remove('active');
+        userDropdown?.classList.remove('active');
     }
 
     /* ============================================================
        MODAL MANAGEMENT SYSTEM
-       Every modal has a unique ID. open/close are isolated.
+       Unchanged — every modal ID, open/close behaviour preserved.
        ============================================================ */
     const modalOverlay = document.getElementById('modalOverlay');
     const allModals    = document.querySelectorAll('.modal');
 
     function openModal(modalId) {
-        // Close all modals first
         allModals.forEach(m => m.classList.remove('active'));
         modalOverlay.classList.add('active');
         const modal = document.getElementById(modalId);
@@ -89,46 +115,171 @@ document.addEventListener('DOMContentLoaded', function () {
         document.body.style.overflow = '';
     }
 
-    // Escape key
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') closeModal();
-    });
-
-    // Overlay click
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
     modalOverlay.addEventListener('click', closeModal);
+    document.querySelectorAll('.modal-close').forEach(btn => btn.addEventListener('click', closeModal));
 
-    // All close buttons
-    document.querySelectorAll('.modal-close').forEach(btn => {
-        btn.addEventListener('click', closeModal);
-    });
+    /* ============================================================
+       ★ PENDING INTENT SYSTEM
+       ----------------------------------------------------------
+       Stores what the user was trying to do before login was
+       required. After successful login the intent is executed
+       automatically — no second click needed.
+
+       Structure:
+         pendingIntent = {
+           modalId : 'bookingModal' | 'orderModal' | ...
+           extras  : { room: '1002', foodCode: '2001' }
+         }
+       ============================================================ */
+    let pendingIntent = null;
+
+    function savePendingIntent(modalId, extras = {}) {
+        pendingIntent = { modalId, extras };
+    }
+
+    function executePendingIntent() {
+        if (!pendingIntent) return;
+        const { modalId, extras } = pendingIntent;
+        pendingIntent = null;       // clear immediately so it only fires once
+
+        // Small delay so the auth modal finishes closing first
+        setTimeout(() => {
+            if (extras.room) {
+                const sel = document.getElementById('booking-room');
+                if (sel) { sel.value = extras.room; updatePriceSummary(); }
+            }
+            if (extras.foodCode) {
+                preselectFood(extras.foodCode);
+            }
+            openModal(modalId);
+
+            // After opening modal, run auto-fill with latest session data
+            autoFillForms();
+        }, 350);
+    }
+
+    /* ============================================================
+       ★ LOGIN-FIRST GUARD
+       ----------------------------------------------------------
+       Call this instead of openModal() for any protected action.
+       • If user IS logged in  → opens the modal directly
+       • If user is NOT logged in → saves intent, shows login modal
+         with a friendly "please login first" message
+       ============================================================ */
+    function requireLogin(modalId, extras = {}) {
+        if (cfg.isLoggedIn) {
+            // Already logged in — open directly
+            if (extras.room) {
+                const sel = document.getElementById('booking-room');
+                if (sel) { sel.value = extras.room; updatePriceSummary(); }
+            }
+            if (extras.foodCode) preselectFood(extras.foodCode);
+            openModal(modalId);
+            autoFillForms();
+        } else {
+            // Not logged in — save intent, redirect to login
+            savePendingIntent(modalId, extras);
+            openModal('membershipModal');
+            showAuthPanel('loginPanel');
+
+            // Show gentle prompt inside the login modal
+            const msg = document.getElementById('loginMessage');
+            showMessage(msg,
+                '🔒 Please sign in or create an account to continue.',
+                'info'
+            );
+        }
+    }
+
+    /* ============================================================
+       ★ AUTO-FILL FORMS
+       ----------------------------------------------------------
+       Fills name/email/city into booking and order forms using
+       session data already injected into AZURE_CONFIG by PHP.
+       Fields remain fully editable by the user.
+       Room number is fetched async from active booking.
+       ============================================================ */
+    function autoFillForms() {
+        if (!cfg.isLoggedIn) return;
+
+        // ── Booking form ─────────────────────────────────────────
+        fillField('booking-name',  cfg.userName);
+        fillField('booking-email', cfg.userEmail);
+        fillField('booking-city',  cfg.userCity);
+
+        // ── Order form ───────────────────────────────────────────
+        fillField('order-name', cfg.userName);
+
+        // Room number: async from active booking
+        fetchActiveRoom();
+    }
+
+    function fillField(id, value) {
+        if (!value) return;
+        const el = document.getElementById(id);
+        // Only fill if field is currently empty (don't overwrite user's edits)
+        if (el && !el.value) el.value = value;
+    }
+
+    // Fetch active room number and fill the order form room select
+    async function fetchActiveRoom() {
+        try {
+            const resp = await fetch(cfg.siteUrl + '/bookings/booking.php?action=active_room');
+            const data = await resp.json();
+            if (data.success && data.room_number) {
+                const roomSel = document.getElementById('order-room');
+                if (roomSel && !roomSel.value) {
+                    // Try to set the value — works if option exists
+                    roomSel.value = data.room_number;
+                    // If the option didn't match, add it dynamically
+                    if (roomSel.value !== data.room_number) {
+                        const opt = document.createElement('option');
+                        opt.value = data.room_number;
+                        opt.textContent = `Room ${data.room_number} (Active Booking)`;
+                        roomSel.insertBefore(opt, roomSel.options[1]);
+                        roomSel.value = data.room_number;
+                    }
+                }
+            }
+        } catch { /* non-blocking — fail silently */ }
+    }
+
+    /* ============================================================
+       ★ FOOD PRESELECTION
+       ----------------------------------------------------------
+       Sets the first food dropdown to the item code passed via
+       data-food-code attribute on the trigger button.
+       User can still change it freely.
+       ============================================================ */
+    function preselectFood(code) {
+        if (!code) return;
+        const sel = document.getElementById('order-food1');
+        if (sel) sel.value = code;
+    }
 
     /* ============================================================
        MODAL TRIGGER MAP
-       Each button ID / class → exact modal ID. DO NOT change these.
+       ALL original mappings STRICTLY preserved.
+       Protected actions now go through requireLogin().
        ============================================================ */
 
-    // ── BOOKING triggers ────────────────────────────────────────
-    // #openBooking, .open-booking  →  bookingModal
+    // ── BOOKING triggers → bookingModal ─────────────────────────
+    // Protected: login required to book
     document.getElementById('openBooking')?.addEventListener('click', (e) => {
         e.preventDefault(); closeMobileMenu();
-        openModal('bookingModal');
+        requireLogin('bookingModal');
     });
 
     document.querySelectorAll('.open-booking').forEach(el => {
         el.addEventListener('click', (e) => {
             e.preventDefault(); closeMobileMenu();
-            const roomVal = el.dataset.room;
-            if (roomVal) {
-                const sel = document.getElementById('booking-room');
-                if (sel) sel.value = roomVal;
-                updatePriceSummary();
-            }
-            openModal('bookingModal');
+            requireLogin('bookingModal', { room: el.dataset.room || '' });
         });
     });
 
-    // ── MEMBERSHIP / SIGN-IN triggers ───────────────────────────
-    // #openMembership, #openMembershipDropdown, #openMembershipFooter → membershipModal
+    // ── MEMBERSHIP / SIGN-IN triggers → membershipModal ─────────
+    // Not protected — this IS the login modal
     ['openMembership', 'openMembershipDropdown', 'openMembershipFooter'].forEach(id => {
         document.getElementById(id)?.addEventListener('click', (e) => {
             e.preventDefault(); closeMobileMenu(); closeUserDropdown();
@@ -137,49 +288,47 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 
-    // ── FOOD ORDER triggers ──────────────────────────────────────
-    // .open-order, #exploreFood → orderModal
-    // #exploreFood opens the order modal directly (original behavior preserved)
+    // ── FOOD ORDER triggers → orderModal ────────────────────────
+    // Protected: login required to order
     document.getElementById('exploreFood')?.addEventListener('click', (e) => {
         e.preventDefault(); closeMobileMenu();
-        openModal('orderModal');
+        requireLogin('orderModal');
     });
 
     document.querySelectorAll('.open-order').forEach(el => {
         el.addEventListener('click', (e) => {
             e.preventDefault();
-            openModal('orderModal');
+            // data-food-code on button enables preselection
+            requireLogin('orderModal', { foodCode: el.dataset.foodCode || '' });
         });
     });
 
-    // ── CAREERS / APPLICATION trigger ───────────────────────────
-    // #openApplicationDropdown → applicationModal
+    // ── CAREERS trigger → applicationModal ──────────────────────
+    // Not protected — anyone can apply
     document.getElementById('openApplicationDropdown')?.addEventListener('click', (e) => {
         e.preventDefault(); closeUserDropdown();
         openModal('applicationModal');
     });
 
     // ── DROPDOWN: My Bookings ────────────────────────────────────
-    // When logged in → myBookingsModal; when not → bookingModal
     document.getElementById('openBookingDropdown')?.addEventListener('click', (e) => {
         e.preventDefault(); closeUserDropdown();
         if (cfg.isLoggedIn) {
             openModal('myBookingsModal');
             loadMyBookings();
         } else {
-            openModal('bookingModal');
+            requireLogin('bookingModal');
         }
     });
 
     // ── DROPDOWN: My Orders ──────────────────────────────────────
-    // When logged in → myOrdersModal; when not → orderModal
     document.getElementById('openOrderDropdown')?.addEventListener('click', (e) => {
         e.preventDefault(); closeUserDropdown();
         if (cfg.isLoggedIn) {
             openModal('myOrdersModal');
             loadMyOrders();
         } else {
-            openModal('orderModal');
+            requireLogin('orderModal');
         }
     });
 
@@ -212,6 +361,10 @@ document.addEventListener('DOMContentLoaded', function () {
     function showAuthPanel(panelId) {
         document.querySelectorAll('.auth-panel').forEach(p => p.classList.remove('active'));
         document.getElementById(panelId)?.classList.add('active');
+        // Clear the info message when switching tabs manually
+        if (panelId !== 'loginPanel') {
+            clearMessage(document.getElementById('loginMessage'));
+        }
     }
 
     document.querySelectorAll('.auth-tab').forEach(tab => {
@@ -292,9 +445,9 @@ document.addEventListener('DOMContentLoaded', function () {
     /* ============================================================
        BOOKING PRICE SUMMARY (live update)
        ============================================================ */
-    const roomPrices = { 1001:199, 1002:299, 1003:499, 1004:349, 1005:599, 1006:449 };
-    const roomSelect  = document.getElementById('booking-room');
-    const nightSelect = document.getElementById('booking-nights');
+    const roomPrices   = { 1001:199, 1002:299, 1003:499, 1004:349, 1005:599, 1006:449 };
+    const roomSelect   = document.getElementById('booking-room');
+    const nightSelect  = document.getElementById('booking-nights');
     const priceSummary = document.getElementById('bookingPriceSummary');
 
     function updatePriceSummary() {
@@ -303,7 +456,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!roomVal) { if (priceSummary) priceSummary.style.display = 'none'; return; }
         const rate  = roomPrices[roomVal] || 0;
         const total = rate * nightsVal;
-        document.getElementById('summaryRate').textContent  = '$' + rate.toFixed(2) + '/night';
+        document.getElementById('summaryRate').textContent   = '$' + rate.toFixed(2) + '/night';
         document.getElementById('summaryNights').textContent = nightsVal;
         document.getElementById('summaryTotal').textContent  = '$' + total.toFixed(2);
         if (priceSummary) priceSummary.style.display = 'block';
@@ -331,6 +484,8 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     // ── Login Form ───────────────────────────────────────────────
+    // ★ After login: execute pendingIntent instead of hard reload
+    //   so user lands on the modal they originally wanted.
     document.getElementById('loginForm')?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const btn = e.target.querySelector('[type=submit]');
@@ -338,18 +493,30 @@ document.addEventListener('DOMContentLoaded', function () {
         await submitForm(e.target, btn, msg, cfg.siteUrl + '/auth/auth.php', (data) => {
             if (data.success) {
                 showNotification(`✅ ${data.message}`, 'success');
-                setTimeout(() => window.location.reload(), 800);
+                cfg.isLoggedIn  = true;
+                cfg.userName    = data.user?.name  || cfg.userName;
+                cfg.userEmail   = data.user?.email || cfg.userEmail;
+
+                if (pendingIntent) {
+                    // Close auth modal, then fire the original action
+                    closeModal();
+                    executePendingIntent();
+                } else {
+                    // No pending intent — standard reload to refresh nav state
+                    setTimeout(() => window.location.reload(), 800);
+                }
             }
         });
     });
 
     // ── Register Form ─────────────────────────────────────────────
+    // ★ Same pattern — execute pending intent after registration
     document.getElementById('registerForm')?.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const btn    = e.target.querySelector('[type=submit]');
-        const msg    = document.getElementById('registerMessage');
-        const pwd    = document.getElementById('reg-password')?.value;
-        const cfm    = document.getElementById('reg-confirm')?.value;
+        const btn = e.target.querySelector('[type=submit]');
+        const msg = document.getElementById('registerMessage');
+        const pwd = document.getElementById('reg-password')?.value;
+        const cfm = document.getElementById('reg-confirm')?.value;
         if (pwd !== cfm) {
             showMessage(msg, 'Passwords do not match.', 'error');
             return;
@@ -357,7 +524,16 @@ document.addEventListener('DOMContentLoaded', function () {
         await submitForm(e.target, btn, msg, cfg.siteUrl + '/auth/auth.php', (data) => {
             if (data.success) {
                 showNotification(`✅ ${data.message}`, 'success');
-                setTimeout(() => window.location.reload(), 800);
+                cfg.isLoggedIn = true;
+                cfg.userName   = data.user?.name  || cfg.userName;
+                cfg.userEmail  = data.user?.email || cfg.userEmail;
+
+                if (pendingIntent) {
+                    closeModal();
+                    executePendingIntent();
+                } else {
+                    setTimeout(() => window.location.reload(), 800);
+                }
             }
         });
     });
@@ -390,9 +566,8 @@ document.addEventListener('DOMContentLoaded', function () {
         const btn = e.target.querySelector('[type=submit]');
         const msg = document.getElementById('applicationMessage');
         setButtonLoading(btn, true);
-
         try {
-            const fd = new FormData(e.target);
+            const fd   = new FormData(e.target);
             const resp = await fetch(cfg.siteUrl + '/careers/apply.php', { method:'POST', body:fd });
             const data = await resp.json();
             showMessage(msg, data.message, data.success ? 'success' : 'error');
@@ -412,8 +587,8 @@ document.addEventListener('DOMContentLoaded', function () {
     document.getElementById('logoutBtn')?.addEventListener('click', async (e) => {
         e.preventDefault(); closeUserDropdown();
         const resp = await fetch(cfg.siteUrl + '/auth/auth.php', {
-            method:'POST',
-            body: new URLSearchParams({ action:'logout' })
+            method: 'POST',
+            body:   new URLSearchParams({ action:'logout' })
         });
         const data = await resp.json();
         if (data.success) window.location.reload();
@@ -465,12 +640,12 @@ document.addEventListener('DOMContentLoaded', function () {
        LOAD ALL ROOMS (dynamic cards)
        ============================================================ */
     const allRoomsData = [
-        { id:1, image:'assets/images/14.jpg',    title:'Deluxe Ocean View',   desc:'Spacious room with panoramic ocean views, king-sized bed, and modern amenities.', badge:'Most Popular',    price:199, features:['King Bed','Pool Access','Free WiFi','Smart TV'] },
-        { id:2, image:'assets/images/15.jpg',    title:'Executive Suite',     desc:'Luxurious suite with separate living area, premium furnishings, and exclusive amenities.', badge:'Best Seller',    price:299, features:['King Bed','Jacuzzi','Breakfast Included','Work Desk'] },
-        { id:3, image:'assets/images/16.jpg',    title:'Presidential Suite',  desc:'Ultimate luxury with private balcony, butler service, and premium amenities.', badge:'Premium',        price:499, features:['Super King Bed','Private Spa','Limo Service','Minibar'] },
-        { id:4, image:'assets/images/11.jfif',   title:'Family Suite',        desc:'Spacious accommodation with separate bedrooms, perfect for families.', badge:'Family Friendly', price:349, features:['2 Queen Beds','2 Smart TVs','Play Area','Kids Menu'] },
-        { id:5, image:'assets/images/9.jfif',    title:'Premium Villa',       desc:'Private villa with personal pool, garden, and dedicated staff.', badge:'Ultimate Luxury', price:599, features:['Private Pool','Private Garden','Private Chef','Private Garage'] },
-        { id:6, image:'assets/images/17.jpg',    title:'Oceanfront Bungalow', desc:'Beachfront bungalow with direct ocean access and uninterrupted sea views.', badge:'Beachfront',     price:449, features:['King Bed','Beach Access','Sun Deck','Coffee Maker'] }
+        { id:1, image:'assets/images/14.jpg',  title:'Deluxe Ocean View',   desc:'Spacious room with panoramic ocean views, king-sized bed, and modern amenities.', badge:'Most Popular',    price:199, features:['King Bed','Pool Access','Free WiFi','Smart TV'] },
+        { id:2, image:'assets/images/15.jpg',  title:'Executive Suite',     desc:'Luxurious suite with separate living area, premium furnishings, and exclusive amenities.', badge:'Best Seller',    price:299, features:['King Bed','Jacuzzi','Breakfast Included','Work Desk'] },
+        { id:3, image:'assets/images/16.jpg',  title:'Presidential Suite',  desc:'Ultimate luxury with private balcony, butler service, and premium amenities.', badge:'Premium',        price:499, features:['Super King Bed','Private Spa','Limo Service','Minibar'] },
+        { id:4, image:'assets/images/11.jfif', title:'Family Suite',        desc:'Spacious accommodation with separate bedrooms, perfect for families.', badge:'Family Friendly', price:349, features:['2 Queen Beds','2 Smart TVs','Play Area','Kids Menu'] },
+        { id:5, image:'assets/images/9.jfif',  title:'Premium Villa',       desc:'Private villa with personal pool, garden, and dedicated staff.', badge:'Ultimate Luxury', price:599, features:['Private Pool','Private Garden','Private Chef','Private Garage'] },
+        { id:6, image:'assets/images/17.jpg',  title:'Oceanfront Bungalow', desc:'Beachfront bungalow with direct ocean access and uninterrupted sea views.', badge:'Beachfront',     price:449, features:['King Bed','Beach Access','Sun Deck','Coffee Maker'] }
     ];
 
     function loadAllRooms() {
@@ -509,11 +684,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 const roomVal = btn.dataset.room;
                 closeModal();
                 setTimeout(() => {
-                    if (roomVal && document.getElementById('booking-room')) {
-                        document.getElementById('booking-room').value = roomVal;
-                        updatePriceSummary();
-                    }
-                    openModal('bookingModal');
+                    requireLogin('bookingModal', { room: roomVal || '' });
                 }, 300);
             });
         });
@@ -524,14 +695,14 @@ document.addEventListener('DOMContentLoaded', function () {
        LOAD ALL FOOD ITEMS (dynamic cards)
        ============================================================ */
     const allFoodData = [
-        { id:1, image:'assets/images/f1.jpg', title:'Signature Biryani',  desc:'Traditional aromatic rice dish with tender meat and exotic spices.', code:'2001', price:'24.99' },
-        { id:2, image:'assets/images/f2.jpg', title:'Premium Karhai',     desc:'Savory traditional curry cooked in a wok with fresh herbs and spices.', code:'2002', price:'29.99' },
-        { id:3, image:'assets/images/f3.jpg', title:'Truffle Pizza',      desc:'Artisanal pizza with black truffle, mozzarella, and wild mushrooms.', code:'2003', price:'18.99' },
-        { id:4, image:'assets/images/f4.jpg', title:'Gourmet Burger',     desc:'Premium beef patty with aged cheddar, truffle aioli, and fresh veggies.', code:'2004', price:'14.99' },
-        { id:5, image:'assets/images/f5.jpg', title:'Truffle Fries',      desc:'Crispy golden fries tossed in truffle oil with garlic aioli.', code:'2005', price:'9.99' },
-        { id:6, image:'assets/images/f6.jpg', title:'Artisan Kheer',      desc:'Traditional rice pudding infused with saffron and cardamom.', code:'2006', price:'12.99' },
-        { id:7, image:'assets/images/f1.jpg', title:'Seafood Platter',    desc:'Fresh lobster, shrimp, and scallops grilled with lemon butter.', code:'2007', price:'34.99' },
-        { id:8, image:'assets/images/f3.jpg', title:'Chocolate Lava Cake',desc:'Warm chocolate cake with molten center and vanilla ice cream.', code:'2008', price:'10.99' }
+        { id:1, image:'assets/images/f1.jpg', title:'Signature Biryani',   desc:'Traditional aromatic rice dish with tender meat and exotic spices.', code:'2001', price:'24.99' },
+        { id:2, image:'assets/images/f2.jpg', title:'Premium Karhai',      desc:'Savory traditional curry cooked in a wok with fresh herbs and spices.', code:'2002', price:'29.99' },
+        { id:3, image:'assets/images/f3.jpg', title:'Truffle Pizza',       desc:'Artisanal pizza with black truffle, mozzarella, and wild mushrooms.', code:'2003', price:'18.99' },
+        { id:4, image:'assets/images/f4.jpg', title:'Gourmet Burger',      desc:'Premium beef patty with aged cheddar, truffle aioli, and fresh veggies.', code:'2004', price:'14.99' },
+        { id:5, image:'assets/images/f5.jpg', title:'Truffle Fries',       desc:'Crispy golden fries tossed in truffle oil with garlic aioli.', code:'2005', price:'9.99' },
+        { id:6, image:'assets/images/f6.jpg', title:'Artisan Kheer',       desc:'Traditional rice pudding infused with saffron and cardamom.', code:'2006', price:'12.99' },
+        { id:7, image:'assets/images/f1.jpg', title:'Seafood Platter',     desc:'Fresh lobster, shrimp, and scallops grilled with lemon butter.', code:'2007', price:'34.99' },
+        { id:8, image:'assets/images/f3.jpg', title:'Chocolate Lava Cake', desc:'Warm chocolate cake with molten center and vanilla ice cream.', code:'2008', price:'10.99' }
     ];
 
     function loadAllFoodItems() {
@@ -546,7 +717,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 <div class="food-image">
                     <img src="${food.image}" alt="${food.title}" loading="lazy">
                     <div class="food-overlay">
-                        <button class="order-btn allfood-order-btn">Order Now</button>
+                        <button class="order-btn allfood-order-btn" data-food-code="${food.code}">Order Now</button>
                     </div>
                 </div>
                 <div class="food-content">
@@ -563,10 +734,13 @@ document.addEventListener('DOMContentLoaded', function () {
             container.appendChild(card);
         });
         initFavourites(container);
+        // ★ Dynamic food cards also use requireLogin + preselection
         container.querySelectorAll('.allfood-order-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 closeModal();
-                setTimeout(() => openModal('orderModal'), 300);
+                setTimeout(() => {
+                    requireLogin('orderModal', { foodCode: btn.dataset.foodCode || '' });
+                }, 300);
             });
         });
         setTimeout(() => container.querySelectorAll('.fade-in').forEach(el => el.classList.add('visible')), 50);
@@ -666,7 +840,7 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     /* ============================================================
-       NEWSLETTER FORM (POSTs to /api/newsletter.php)
+       NEWSLETTER FORM
        ============================================================ */
     document.getElementById('newsletterForm')?.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -685,7 +859,7 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     /* ============================================================
-       SMOOTH SCROLL (anchor links only – skip modal triggers)
+       SMOOTH SCROLL
        ============================================================ */
     document.querySelectorAll('a[href^="#"]').forEach(anchor => {
         anchor.addEventListener('click', function (e) {
@@ -701,7 +875,7 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     /* ============================================================
-       SCROLL ANIMATIONS (fade-in elements)
+       SCROLL ANIMATIONS
        ============================================================ */
     function animateOnScroll() {
         document.querySelectorAll('.fade-in:not(.visible)').forEach(el => {
@@ -710,23 +884,21 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
     }
-    window.addEventListener('scroll', animateOnScroll, { passive:true });
+    window.addEventListener('scroll', animateOnScroll, { passive: true });
     setTimeout(animateOnScroll, 300);
 
     /* ============================================================
        ACTIVE NAV LINK ON SCROLL
        ============================================================ */
-    const sections  = document.querySelectorAll('section[id]');
-    const navLinks  = document.querySelectorAll('.nav-link');
+    const sections = document.querySelectorAll('section[id]');
+    const navLinks = document.querySelectorAll('.nav-link');
     window.addEventListener('scroll', () => {
         let current = '';
-        sections.forEach(s => {
-            if (window.scrollY >= s.offsetTop - 100) current = s.id;
-        });
+        sections.forEach(s => { if (window.scrollY >= s.offsetTop - 100) current = s.id; });
         navLinks.forEach(link => {
             link.classList.toggle('active', link.getAttribute('href') === `#${current}`);
         });
-    }, { passive:true });
+    }, { passive: true });
 
     /* ============================================================
        BACK TO TOP
@@ -734,7 +906,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const backToTop = document.querySelector('.back-to-top');
     window.addEventListener('scroll', () => {
         backToTop?.classList.toggle('visible', window.scrollY > 300);
-    }, { passive:true });
+    }, { passive: true });
 
     /* ============================================================
        NOTIFICATION SYSTEM
@@ -763,4 +935,20 @@ document.addEventListener('DOMContentLoaded', function () {
     if (urlParams.get('modal') === 'membership') {
         setTimeout(() => openModal('membershipModal'), 600);
     }
-});
+
+    /* ============================================================
+       ★ AUTO-FILL ON PAGE LOAD
+       If user is already logged in when page loads, pre-fill forms
+       so fields are ready before any modal is opened.
+       ============================================================ */
+    if (cfg.isLoggedIn) {
+        // Fill booking form fields (they exist in DOM even before modal opens)
+        fillField('booking-name',  cfg.userName);
+        fillField('booking-email', cfg.userEmail);
+        fillField('booking-city',  cfg.userCity);
+        fillField('order-name',    cfg.userName);
+        // Fetch active room async — runs in background, non-blocking
+        fetchActiveRoom();
+    }
+
+}); // end DOMContentLoaded

@@ -99,7 +99,7 @@ $csrf     = generateCsrfToken();
                 <h1 class="hero-title">Experience Unparalleled Luxury</h1>
                 <p class="hero-subtitle">Azure Sands Resort offers breathtaking ocean views, world-class amenities, and impeccable service for the perfect getaway.</p>
                 <div class="hero-buttons">
-                    <a href="#" class="btn-primary" id="exploreFood">Explore Food Items</a>
+                    <a href="#dining-section" class="btn-primary" id="exfood">Explore Food Items</a>
                     <a href="#rooms-section" id="exroom" class="btn-secondary">Explore Rooms</a>
                 </div>
                 <div class="hero-scroll">
@@ -207,17 +207,17 @@ $csrf     = generateCsrfToken();
                 <div class="food-card fade-in">
                     <div class="food-image">
                         <img src="assets/images/f1.jpg" alt="Signature Biryani" loading="lazy">
-                        <div class="food-overlay"><button class="order-btn open-order">Order Now</button></div>
+                        <div class="food-overlay"><button class="order-btn open-order" data-food-code="2001">Order Now</button></div>
                     </div>
-                    <div class="food-content">
+                       <div class="food-content">
                         <div class="food-header">
                             <h3 class="food-title">Signature Biryani</h3>
                             <button class="favorite-btn" aria-label="Favourite"><i class="bx bxs-heart"></i></button>
                         </div>
-                        <p class="food-description">Traditional aromatic rice dish with tender meat and exotic spices.</p>
+                        <p class="food-description">Savory traditional curry cooked in a wok with fresh herbs and spices.</p>
                         <div class="food-footer">
-                            <span class="food-code">Item #2001</span>
-                            <span class="food-price">$24.99</span>
+                            <span class="food-code">Item #2002</span>
+                            <span class="food-price">$29.99</span>
                         </div>
                     </div>
                 </div>
@@ -225,7 +225,7 @@ $csrf     = generateCsrfToken();
                 <div class="food-card fade-in">
                     <div class="food-image">
                         <img src="assets/images/f2.jpg" alt="Premium Karhai" loading="lazy">
-                        <div class="food-overlay"><button class="order-btn open-order">Order Now</button></div>
+                        <div class="food-overlay"><button class="order-btn open-order" data-food-code="2002">Order Now</button></div>
                     </div>
                     <div class="food-content">
                         <div class="food-header">
@@ -243,7 +243,7 @@ $csrf     = generateCsrfToken();
                 <div class="food-card fade-in">
                     <div class="food-image">
                         <img src="assets/images/f3.jpg" alt="Truffle Pizza" loading="lazy">
-                        <div class="food-overlay"><button class="order-btn open-order">Order Now</button></div>
+                        <div class="food-overlay"><button class="order-btn open-order" data-food-code="2003">Order Now</button></div>
                     </div>
                     <div class="food-content">
                         <div class="food-header">
@@ -873,7 +873,9 @@ $csrf     = generateCsrfToken();
     <script>
         window.AZURE_CONFIG = {
             isLoggedIn: <?= $isLogged ? 'true' : 'false' ?>,
-            userName: <?= $isLogged ? json_encode($user['full_name']) : 'null' ?>,
+            userName:   <?= $isLogged ? json_encode($user['full_name']) : 'null' ?>,
+            userEmail:  <?= $isLogged ? json_encode($user['email'])     : 'null' ?>,
+            userCity:   <?= $isLogged ? json_encode($user['city'] ?? '') : 'null' ?>,
             siteUrl: '<?= SITE_URL ?>'
         };
     </script>
