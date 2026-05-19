@@ -51,6 +51,10 @@ $statuses = ['Pending','Preparing','Out for Delivery','Delivered','Cancelled'];
 <div class="card">
     <div class="card-header">
         <h3 class="card-title">All Orders (<?=number_format($totalRows)?>)</h3>
+        <a href="../orders/export_pdf.php<?= $statusFilter ? '?status='.urlencode($statusFilter) : '' ?>"
+           target="_blank" class="btn btn-danger btn-sm">
+            <i class="bx bx-file-pdf"></i> Export PDF
+        </a>
     </div>
     <div class="card-body">
         <form method="GET" class="filter-bar">

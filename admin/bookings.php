@@ -48,7 +48,10 @@ $statuses = ['Pending','Confirmed','Checked In','Checked Out','Cancelled'];
 <div class="card">
     <div class="card-header">
         <h3 class="card-title">All Bookings (<?=number_format($totalRows)?>)</h3>
-        <a href="../bookings/export.php" class="btn btn-success btn-sm"><i class="bx bx-download"></i> Export CSV</a>
+        <a href="../bookings/export_pdf.php<?= $statusFilter || $search ? '?status='.urlencode($statusFilter).'&q='.urlencode($search) : '' ?>"
+           target="_blank" class="btn btn-danger btn-sm">
+            <i class="bx bx-file-pdf"></i> Export PDF
+        </a>
     </div>
     <div class="card-body">
         <form method="GET" class="filter-bar">

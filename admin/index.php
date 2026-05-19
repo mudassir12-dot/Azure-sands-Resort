@@ -72,6 +72,10 @@ $monthlyRevenue = $db->query(
     <?php if($newApps>0):?>
     <a href="careers.php?status=Received" class="btn btn-info"><i class="bx bx-bell"></i> <?=$newApps?> New Applications</a>
     <?php endif;?>
+    <!-- ── PDF Report buttons ── -->
+    <a href="report_pdf.php" target="_blank" class="btn btn-danger"><i class="bx bx-file-pdf"></i> Overall Report PDF</a>
+    <a href="../bookings/export_pdf.php" target="_blank" class="btn btn-primary btn-sm"><i class="bx bx-file-pdf"></i> Bookings PDF</a>
+    <a href="../orders/export_pdf.php" target="_blank" class="btn btn-primary btn-sm"><i class="bx bx-file-pdf"></i> Orders PDF</a>
 </div>
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
